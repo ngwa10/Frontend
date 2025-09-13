@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Trade Signal Metrics Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <style>
+    body { background:#181818; color:#f5f5f5; font-family: 'Segoe UI', Arial; margin:0; }
+    h1, h2 { color:#56CC9D; text-shadow:1px 1px 2px #111; }
+    .container { max-width:1100px; margin:32px auto; padding:24px; background:#222; border-radius:16px; box-shadow:0 4px 24px #0008; }
+    .cards { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:32px; }
+    .card { flex:1 1 220px; background:#232323; border-radius:12px; padding:20px; box-shadow:0 2px 10px #0004; margin-bottom:10px;}
+    .card.highlight { border:2px solid #56CC9D; }
+    .card .label { font-size:14px; color:#aaa; }
+    .card .value { font-size:24px; font-weight:bold; margin-top:8px; }
+    .summary { margin-bottom:24px; }
+    .history { background:#252525; border-radius:8px; padding:16px; max-height:280px; overflow:auto; }
+    .history-entry { padding:6px 0; border-bottom:1px solid #333; }
+    .win { color:#8FCB81; }
+    .loss { color:#E57373; }
+    .chartbar { height:8px; background:#56CC9D; border-radius:4px; margin:4px 0 10px 0;}
+    @media(max-width:700px){.cards{flex-direction:column}}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Trading Signal Metrics Dashboard</h1>
+    <div class="summary" id="summary"></div>
+    <div class="cards" id="cards"></div>
+    <h2>History (Last 30 Trades)</h2>
+    <div class="history" id="history"></div>
+  </div>
+  <script>
+    async function fetchMetrics() {
+      const res = await fetch('/metrics');
+      return await res.json();
+    }
+    function render() {
+      fetchMetrics().then(data => {
+        // Summary
+        let html = `<div class="cards">
+          <div class="card"><div class="label">Total Trades</div><div class="value">${data.totals.trades}</div></div>
+          <div class="card"><div class="label">Total Wins</div><div class="value win">${data.totals.wins}</div></div>
+          <div class="card"><div class="label">Total Losses</div><div class="value loss">${data.totals.losses}</div></div>
+          <div class="card highlight"><div class="label">Top Channel</div><div class="value">${data.topChannel||'-'}</div></div>
+        </div>`;
+        // Period summaries
+        html += `<div class="cards">
+          <div class="card"><div class="label">Today's Trades</div><div class="value">${Object.values(data.daily).reduce((a,b)=>a+b.trades,0)}</div></div>
+          <div class="card"><div class="label">This Week's Trades</div><div class="value">${Object.values(data.weekly).reduce((a,b)=>a+b.trades,0)}</div></div>
+          <div class="card"><div class="label">This Month's Trades</div><div class="value">${Object.values(data.monthly).reduce((a,b)=>a+b.trades,0)}</div></div>
+        </div>`;
+        document.getElementById('summary').innerHTML = html;
+
+        // Channel cards
+        let channelCards = '';
+        for (let ch in data.channels) {
+          const v = data.channels[ch];
+          let winrate = v.trades ? Math.round(100*v.wins/v.trades) : 0;
+          channelCards += `<div class="card${ch===data.topChannel?' highlight':''}">
+            <div class="label">${ch}</div>
+            <div class="value">Trades: ${v.trades}</div>
+            <div>Wins: <span class="win">${v.wins}</span> | Losses: <span class="loss">${v.losses}</span></div>
+            <div class="chartbar" style="width:${winrate*2}px;background:#8FCB81"></div>
+            <div style="font-size:14px">${winrate}% Winrate</div>
+          </div>`;
+        }
+        document.getElementById('cards').innerHTML = channelCards;
+
+        // History
+        let histHtml = '';
+        for (const h of data.history) {
+          histHtml += `<div class="history-entry">
+            <span class="${h.result}">${h.result.toUpperCase()}</span> | ${h.channel} | ${h.currency} | ${h.entry_time} | Martingale: ${h.martingale_level}
+            <span style="float:right">${new Date(h.timestamp).toLocaleString()}</span>
+          </div>`;
+        }
+        document.getElementById('history').innerHTML = histHtml;
+      });
+    }
+    render();
+    setInterval(render, 3000);
+  </script>
+</body>
+</html>
