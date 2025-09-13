@@ -1,0 +1,15 @@
+{
+  "name": "Frontend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.17.1",
+    "ws": "^8.2.3",
+    "telegram": "^2.13.3",
+    "input": "^1.0.0"
+  }
+}
