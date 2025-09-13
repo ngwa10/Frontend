@@ -1,27 +1,18 @@
-/**
- * Telegram Signal Listener (Production-ready)
- * - Listens up to 5 channels for trade signals
- * - Parses signals robustly, sends action to Auto Clicker via WebSocket
- * - Receives trade results via WebSocket, updates metrics (daily/weekly/monthly)
- * - Serves modern dashboard at / (webui.html)
- * - API endpoints for metrics and logs
- */
+require('dotenv').config();
 
 const express = require('express');
 const path = require('path');
 const WebSocket = require('ws');
 const { recordTrade, getSummary, resetPeriod } = require('./metrics');
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || 'YOUR_BOT_TOKEN';
-const TELEGRAM_API_ID = process.env.TELEGRAM_API_ID || 'YOUR_API_ID';
-const TELEGRAM_API_HASH = process.env.TELEGRAM_API_HASH || 'YOUR_API_HASH';
-const WS_URL = process.env.WS_URL || 'ws://localhost:8888'; // Auto Clicker WebSocket
-
-const CHANNELS = [
-  'channel1', 'channel2', 'channel3', 'channel4', 'channel5'
-];
-
-const app = express();
+// Credentials from .env
+const TELEGRAM_API_ID = process.env.TELEGRAM_API_ID;
+const TELEGRAM_API_HASH = process.env.TELEGRAM_API_HASH;
+const TELEGRAM_SESSION_STRING = process.env.TELEGRAM_SESSION_STRING;
+const CHANNEL_IDS = process.env.CHANNEL_IDS
+  ? process.env.CHANNEL_IDS.split(',').map(id => Number(id.trim()))
+  : [];
+const WS_URL = process.env.WS_URL;
 const PORT = process.env.PORT || 8080;
 
 let logs = [];
@@ -55,35 +46,33 @@ connectWS();
 // --- Telegram Listener ---
 const { TelegramClient } = require('telegram');
 const { StringSession } = require('telegram/sessions');
-const input = require('input'); // npm i input
 
 async function telegramListener() {
-  // Use gramjs; ask for credentials on first run
-  const apiId = TELEGRAM_API_ID; // your API ID
-  const apiHash = TELEGRAM_API_HASH; // your API HASH
-  const stringSession = new StringSession(''); // use input for first setup
+  const client = new TelegramClient(
+    new StringSession(TELEGRAM_SESSION_STRING),
+    Number(TELEGRAM_API_ID),
+    TELEGRAM_API_HASH,
+    { connectionRetries: 5 }
+  );
+  await client.start();
+  log({ type: 'system', msg: 'Telegram self-userbot started.' });
 
-  const client = new TelegramClient(stringSession, apiId, apiHash, { connectionRetries: 5 });
-  await client.start({
-    phoneNumber: async () => await input.text('Enter your phone number:'),
-    password: async () => await input.text('Enter your password:'),
-    phoneCode: async () => await input.text('Enter code:'),
-    onError: (err) => log({ type: 'error', msg: err.message }),
-  });
-
-  log({ type: 'system', msg: 'Telegram started.' });
-
-  for (const ch of CHANNELS) {
-    client.addEventHandler((event) => {
-      if (!event.message) return;
-      const msg = event.message.message;
-      const parsed = parseSignal(msg, ch);
-      if (parsed) {
-        sendToAutoClicker(parsed);
-        log({ type: 'signal', ...parsed });
-      }
-    }, { chats: [ch] });
-  }
+  // Listen to all specified channel IDs
+  client.addEventHandler(async (event) => {
+    if (!event.message) return;
+    // GramJS event.chatId gives channel/group/user ID
+    const chatId =
+      event.chatId ||
+      (event.message.peerId && event.message.peerId.channelId) ||
+      (event.message.peerId && event.message.peerId.userId);
+    if (!CHANNEL_IDS.includes(Number(chatId))) return;
+    const msg = event.message.message;
+    const parsed = parseSignal(msg, chatId);
+    if (parsed) {
+      sendToAutoClicker(parsed);
+      log({ type: 'signal', ...parsed });
+    }
+  }, { chats: CHANNEL_IDS });
 }
 telegramListener();
 
@@ -111,6 +100,7 @@ function sendToAutoClicker(cmd) {
 }
 
 // --- REST API & UI ---
+const app = express();
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'webui.html')));
 app.get('/metrics', (req, res) => res.json(getSummary()));
 app.get('/logs', (req, res) => res.json(logs.slice(0, 100)));
